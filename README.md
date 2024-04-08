@@ -1,6 +1,6 @@
 # Ryu <em>et al.</em> Environmental Health Perspectives 2024
 
-This is the public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
+This is the public GitHub repository for Ryu <em>et al</em> Environmental Health Perspectives 2024 Manuscript.
 
 ## Cite our work
 Please consider citing our manuscripts when using our dataset for your publication. Most up-to-date citation recommendations for our work will be posted on this page when the EHP manuscript becomes available on PubMed.
