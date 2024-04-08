@@ -1,0 +1,53 @@
+---
+title: "Ryu et al EHP 2024 Summary Statistics"
+author: "Min Hyung Ryu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "..")
+getwd()
+
+#load libraries
+library(here)
+library(readxl)
+library(writexl)
+library(plyr)
+library(tidyverse)
+library(gmodels)
+library(nlme)
+library(rmcorr)
+library(gtools)
+library(DT)
+
+# set date as an object
+currentDate <- format(Sys.Date(), "%Y%m%d")
+
+# set directories
+path = here::here() #this should be the parent directory 
+data_path = here::here("data")
+code_path = here::here("code")
+result_path = here::here("results")
+
+# make directory for results on currentDate
+if(dir.exists(paste0(result_path,"/", currentDate, "/")) == TRUE){
+  print(paste0(result_path,"/", currentDate, "/"))
+} else {
+  dir.create(paste0(result_path,"/", currentDate, "/"), recursive = TRUE)
+}
+
+result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
+
+```
+
+# Data
+```{r}
+Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+```
+
