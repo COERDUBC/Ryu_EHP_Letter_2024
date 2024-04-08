@@ -2,7 +2,7 @@
 
 This is a public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
 
-## Citate our work
+## Cite our work
 Please consider citing our manuscript when using our dataset for your publication. Most up-to-date citation recommendations for our work will be posted on this page when the EHP manuscript becomes available on PubMed.
 
 <strong> Main Study Paper:</strong>
