@@ -25,7 +25,7 @@ Min Hyung Ryu<sup>1,2,3</sup>, Illiassou Hamidou Soumana<sup>1,2</sup>, Denise J
 \
 Chris Carlsten, MD, MPH
 
-2775 Laurel St. 7<sup>th<sup> Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+2775 Laurel St. 7<sup>th</sup> Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
 
 E-mail: carlsten\@mail.ubc.ca
 
