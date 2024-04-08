@@ -10,15 +10,15 @@ Please consider citing our manuscript when using our dataset for your publicatio
 
 **Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
 
-Min Hyung Ryu^1,2,3^, Illiassou Hamidou Soumana^1,2^, Denise J Wooding^1,2^, Fernando Sergio Leitao Filho^3^, Julia Yang^3^, Corey Nislow^4^, Christopher F Rider^1,2^, Janice M Leung^3^, Chris Carlsten^1,2,3^
+Min Hyung Ryu<sup>1,2,3</sup>, Illiassou Hamidou Soumana<sup>1,2</sup>, Denise J Wooding<sup>1,2</sup>, Fernando Sergio Leitao Filho<sup>3</sup>, Julia Yang<sup>3</sup>, Corey Nislow<sup>4</sup>, Christopher F Rider<sup>1,2</sup>, Janice M Leung<sup>3</sup>, Chris Carlsten<sup>1,2,3</sup>
 
-^1^ Air Pollution Exposure Lab, Division of Respiratory Medicine, ^2^ Centre for Lung Health, Vancouver Coastal Health Research Institute, ^3^ Heart and Lung Innovation, St. Paul’s Hospital, ^4^ Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
+<sup>1</sup> Air Pollution Exposure Lab, Division of Respiratory Medicine, <sup>2</sup> Centre for Lung Health, Vancouver Coastal Health Research Institute, <sup>3</sup> Heart and Lung Innovation, St. Paul’s Hospital, <sup>4</sup> Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
 
 **Correspondence to be addressed to:**\
 \
 Chris Carlsten, MD, MPH
 
-2775 Laurel St. 7^th^ Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+2775 Laurel St. 7<sup>th<sup> Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
 
 E-mail: carlsten\@mail.ubc.ca
 
@@ -38,7 +38,7 @@ Telephone: 1-604-875-4729
 
 ## [Analysis]{.underline}
 
-All the code for the analysis are located in the code foler. Html generated from R markdown documents are located in the results directory.
+All the code for the analysis are located in the code folder. Html generated from R markdown documents are located in the results directory.
 
 ------------------------------------------------------------------------
 
