@@ -1,0 +1,326 @@
+---
+title: "Ryu et al EHP 2024 Summary Statistics"
+author: "Min Hyung Ryu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+# Purpose
+
+Purpose of this html document is to summarize dataset analyzed in Ryu et al EHP 2024 manuscript.
+
+Please consider citing our manuscript when using our dataset. Most up-to-date citation recommendation and data use will be posted on our GitHub page.
+
+Our GitHub repository is <https://github.com/COERDUBC/Ryu_EHP_Letter_2024>
+
+For any issue regarding code and data, please post issues to our GitHub page. For any other inquiry, please contact the corresponding author, Dr. Chris Carlsten.
+
+# Manuscript
+
+**Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
+
+Min Hyung Ryu^1,2,3^, Illiassou Hamidou Soumana^1,2^, Denise J Wooding^1,2^, Fernando Sergio Leitao Filho^3^, Julia Yang^3^, Corey Nislow^4^, Christopher F Rider^1,2^, Janice M Leung^3^, Chris Carlsten^1,2,3^
+
+^1^ Air Pollution Exposure Lab, Division of Respiratory Medicine, ^2^ Centre for Lung Health, Vancouver Coastal Health Research Institute, ^3^ Heart and Lung Innovation, St. Paul’s Hospital, ^4^ Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
+
+**Correspondence to be addressed to:**\
+\
+Chris Carlsten, MD, MPH
+
+2775 Laurel St. 7^th^ Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+
+E-mail: carlsten\@mail.ubc.ca
+
+Telephone: 1-604-875-4729
+
+**Funding:** This study was supported by a research grant from the Canadian Respiratory Research Network.
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "..")
+getwd()
+
+#load libraries
+library(here)
+library(readxl)
+library(writexl)
+library(plyr)
+library(tidyverse)
+library(gmodels)
+library(nlme)
+library(rmcorr)
+library(gtools)
+library(DT)
+library(tableone)
+library(ggpubr)
+
+
+# set date as an object
+currentDate <- format(Sys.Date(), "%Y%m%d")
+
+# set directories
+path = here::here() #this should be the parent directory 
+data_path = here::here("data")
+code_path = here::here("code")
+result_path = here::here("results")
+
+# make directory for results on currentDate
+if(dir.exists(paste0(result_path,"/", currentDate, "/")) == TRUE){
+  print(paste0(result_path,"/", currentDate, "/"))
+} else {
+  dir.create(paste0(result_path,"/", currentDate, "/"), recursive = TRUE)
+}
+
+result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
+
+```
+
+# Data
+
+```{r}
+Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+Microbiome <- readRDS(paste0(data_path, "/COPA_EHP_Microbiome_Public.rds"))
+colnames(Microbiome)[3] <- "ASV"
+Cytokines <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_Public.rds"))
+LODs <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_LODs_Public.rds"))
+colnames(LODs) <- c("Target","LLOD")
+Spiro <- readRDS(paste0(data_path, "/COPA_EHP_Spiro_Public.rds"))
+```
+
+## Demographic data
+
+Below we show demographic variables for each subject
+
+```{r}
+DT::datatable(Demographics)
+```
+
+## Microbiome data
+
+Below we show searchable data table for microbiome data
+
+```{r}
+DT::datatable(Microbiome)
+```
+
+## Cytokines
+
+Here, we replace 1/2 LOD values with NA. Then we show summary statistics for the entire dataset for cytokine measurements.
+
+```{r, warning=FALSE}
+# place NA into values that were converted to 1/2 LOD
+df <- Cytokines
+var_names <- colnames(df)[4:ncol(df)]
+df <- df %>% pivot_longer(
+  cols = all_of(var_names)
+)
+colnames(df)[4] <- "Target"
+df <- merge(df, LODs)
+df$value[which(df$value < df$LLOD)] = NA
+colnames(df)[5] <- "concentration"
+df <- df %>% select(!all_of("LLOD"))
+df <- df %>% pivot_wider(
+  names_from = Target, 
+  values_from = concentration
+)
+summary(df)
+```
+
+Concentrations are in pg/mL.
+
+## Lung Function
+
+The following is data table for spirometry values measured before FA or  DE exposure ("baseline")  in all participants included in our analysis. The value in time column refers to time with respect to the end of 2 hour exposure session. Therefore, Time == -4h was considered as the baseline for each study visit. In the dataset, time == 0h and time == 24h are immediately and 24 hours after the end of exposure.
+
+```{r}
+Spiro_baseline <- Spiro %>% subset(Time == "-4h")
+DT::datatable(Spiro_baseline)
+```
+
+# Summary Tables
+
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Microbiome)
+data$TimeSinceQuit <- as.numeric(data$TimeSinceQuit)
+myVars <- c("Age", "PackYear", "TimeSinceQuit","FEV1_FVC","FEV1pp", "shannon", "ASV", "faith_pd", "pielou_e")
+strata <- c("Group")
+mb <- c("shannon", "ASV", "faith_pd", "pielou_e")
+tb1 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_1 <- print(tb1, nonnormal = mb)
+```
+
+## Demographic and microbiome
+
+Below we show summarized demographic variable and microbiome stratified by study groups.
+
+```{r, warning=FALSE}
+knitr::kable(table_1, format = "markdown", digits = 2)
+```
+
+## Cytokines
+
+### FA exposure
+
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Cytokines)
+data <- data %>% subset(Exposure == "FA")
+myVars <- names(Cytokines)[-(1:3)]
+strata <- c("Group")
+mb <- myVars
+tb2 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_2 <- print(tb2, nonnormal = mb)
+```
+
+Below is the summary table for cytokines measured after FA exposure.
+
+```{r, warning=FALSE}
+knitr::kable(table_2, format = "markdown", digits = 2)
+```
+
+Concentrations are in pg/mL.
+
+### DE exposure
+
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Cytokines)
+data <- data %>% subset(Exposure == "DE")
+myVars <- names(Cytokines)[-(1:3)]
+strata <- c("Group")
+mb <- myVars
+tb3 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_3 <- print(tb3, nonnormal = mb)
+```
+
+Below is the summary table for cytokines measured after DE exposure.
+
+```{r, warning=FALSE}
+knitr::kable(table_3, format = "markdown", digits = 2)
+```
+
+Concentrations are in pg/mL.
+
+## Lung Function
+### Baseline: before exposure
+Summary of lung function measured at study visit baseline stratified by group and exposure.
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Spiro)
+data <- data %>% subset(Time == "-4h")
+myVars <- names(Spiro)[-(1:3)]
+data$Group_Exposure <- paste0(data$Group,"_", data$Exposure)
+data$Group_Exposure <- factor(data$Group_Exposure, levels = c("ES_FA","ES_DE","ES-COPD_FA","ES-COPD_DE","NS_FA","NS_DE"))
+strata <- c("Group_Exposure")
+mb <- myVars
+tb4 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_4 <- print(tb4, nonnormal = mb)
+```
+
+```{r, warning=FALSE}
+knitr::kable(table_4, format = "markdown", digits = 2)
+```
+
+### 0h: Immediately after each exposure
+Summary of lung function measured immediately after each exposure stratified by group and exposure.
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Spiro)
+data <- data %>% subset(Time == "0h")
+myVars <- names(Spiro)[-(1:3)]
+data$Group_Exposure <- paste0(data$Group,"_", data$Exposure)
+data$Group_Exposure <- factor(data$Group_Exposure, levels = c("ES_FA","ES_DE","ES-COPD_FA","ES-COPD_DE","NS_FA","NS_DE"))
+strata <- c("Group_Exposure")
+mb <- myVars
+tb5 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_5 <- print(tb5, nonnormal = mb)
+```
+
+```{r, warning=FALSE}
+knitr::kable(table_5, format = "markdown", digits = 2)
+```
+
+### 24h: 24 hours after each exposure
+Summary of lung function measured 24 hours after each exposure stratified by group and exposure.
+```{r, warning=FALSE, include=FALSE}
+data <- merge(Demographics, Spiro)
+data <- data %>% subset(Time == "24h")
+myVars <- names(Spiro)[-(1:3)]
+data$Group_Exposure <- paste0(data$Group,"_", data$Exposure)
+data$Group_Exposure <- factor(data$Group_Exposure, levels = c("ES_FA","ES_DE","ES-COPD_FA","ES-COPD_DE","NS_FA","NS_DE"))
+strata <- c("Group_Exposure")
+mb <- myVars
+tb6 <- CreateTableOne(data = data, vars = myVars, strata = strata, test = FALSE)
+table_6 <- print(tb6, nonnormal = mb)
+```
+
+```{r, warning=FALSE}
+knitr::kable(table_6, format = "markdown", digits = 2)
+```
+
+# Plots
+
+## Boxplots of microbiome data
+
+Group comparisons
+
+```{r}
+data <- merge(Demographics, Microbiome)
+plot1 <- data %>%
+  ggplot(aes(x=Group, y=shannon, fill=Group)) +
+    geom_boxplot() +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("") +
+    xlab("")
+
+plot2 <- data %>%
+  ggplot(aes(x=Group, y=ASV, fill=Group)) +
+    geom_boxplot() +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("") +
+    xlab("")
+
+plot3 <- data %>%
+  ggplot(aes(x=Group, y=faith_pd, fill=Group)) +
+    geom_boxplot() +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("") +
+    xlab("")
+
+plot4 <- data %>%
+  ggplot(aes(x=Group, y=pielou_e, fill=Group)) +
+    geom_boxplot() +
+    theme_classic() +
+    theme(
+      legend.position="none",
+      plot.title = element_text(size=11)
+    ) +
+    ggtitle("") +
+    xlab("")
+
+ggarrange(plot1, plot2, plot3, plot4, 
+          labels = c("A", "B", "C", "D"),
+          ncol = 2, nrow = 2)
+
+```
+
+ASV = amplicon sequence variant. Faith_pd = Faith’s phylogenetic diversity. Pielou_e = Pielou’s evenness. Airway microbiome metrics were obtained by averaging values from two bronchial brushes that were collected on two different occasions in each participant after each exposure.
+
+
+# Session Info
+```{r session information calling, echo=FALSE}
+sessionInfo()
+```
+

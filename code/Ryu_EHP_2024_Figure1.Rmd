@@ -1,0 +1,201 @@
+---
+title: "Ryu et al EHP 2024 Figure1"
+author: "Min Hyung Ryu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+# Purpose
+
+Purpose of this html document is to creation of Figure 1 in Ryu et al EHP 2024 manuscript.
+
+Please consider citing our manuscript when using our dataset. Most up-to-date citation recommendation and data use will be posted on our GitHub page.
+
+Our GitHub repository is <https://github.com/COERDUBC/Ryu_EHP_Letter_2024>
+
+For any issue regarding code and data, please post issues to our GitHub page. For any other inquiry, please contact the corresponding author, Dr. Chris Carlsten.
+
+# Manuscript
+
+**Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
+
+Min Hyung Ryu^1,2,3^, Illiassou Hamidou Soumana^1,2^, Denise J Wooding^1,2^, Fernando Sergio Leitao Filho^3^, Julia Yang^3^, Corey Nislow^4^, Christopher F Rider^1,2^, Janice M Leung^3^, Chris Carlsten^1,2,3^
+
+^1^ Air Pollution Exposure Lab, Division of Respiratory Medicine, ^2^ Centre for Lung Health, Vancouver Coastal Health Research Institute, ^3^ Heart and Lung Innovation, St. Paul’s Hospital, ^4^ Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
+
+**Correspondence to be addressed to:**\
+\
+Chris Carlsten, MD, MPH
+
+2775 Laurel St. 7^th^ Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+
+E-mail: carlsten\@mail.ubc.ca
+
+Telephone: 1-604-875-4729
+
+**Funding:** This study was supported by a research grant from the Canadian Respiratory Research Network.
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "..")
+getwd()
+
+#load libraries
+library(here)
+library(readxl)
+library(writexl)
+library(plyr)
+library(tidyverse)
+library(gmodels)
+library(nlme)
+library(rmcorr)
+library(gtools)
+library(DT)
+library(tableone)
+library(ggpubr)
+
+
+# set date as an object
+currentDate <- format(Sys.Date(), "%Y%m%d")
+
+# set directories
+path = here::here() #this should be the parent directory 
+data_path = here::here("data")
+code_path = here::here("code")
+result_path = here::here("results")
+
+# make directory for results on currentDate
+if(dir.exists(paste0(result_path,"/", currentDate, "/")) == TRUE){
+  print(paste0(result_path,"/", currentDate, "/"))
+} else {
+  dir.create(paste0(result_path,"/", currentDate, "/"), recursive = TRUE)
+}
+
+result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
+
+```
+
+# Data
+
+```{r}
+Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+Microbiome <- readRDS(paste0(data_path, "/COPA_EHP_Microbiome_Public.rds"))
+colnames(Microbiome)[3] <- "ASV"
+Cytokines <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_Public.rds"))
+LODs <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_LODs_Public.rds"))
+colnames(LODs) <- c("Target","LLOD")
+Spiro <- readRDS(paste0(data_path, "/COPA_EHP_Spiro_Public.rds"))
+```
+
+## Calculate foldchange
+
+Below we calculate fold change between DE and FA
+
+```{r}
+# Write a function to calculate log fold change between FA and DE
+FoldChangeFA = function(data){
+  arrange(data, EHP_sid, Exposure)
+  tempList = list()
+  for (i in 1:length(data$EHP_sid)){
+    if (data$Exposure[i] != c("FA")){
+      newRow = data[i, ]
+      
+      FA = data[which(data$EHP_sid == newRow$EHP_sid), ]
+      FA = FA[which(FA$Exposure == c("FA")), ]
+      
+      for(k in 1:nrow(newRow)){  
+        for (j in 4:ncol(newRow)){
+          newRow[k,j] = ((foldchange(newRow[k,j],FA[k,j])))
+          tempList[[i]] = newRow
+        }}}
+    
+    if (data$Exposure[i] == c("FA")){
+      tempList[[i]] = NA
+    }}
+  rm(FA, newRow)
+  
+  newDataFrame = do.call(rbind.data.frame, tempList)
+  return(newDataFrame)
+}
+
+Cytokines$Exposure <- as.character(Cytokines$Exposure)
+VPlex_BAL_foldchange <- FoldChangeFA(Cytokines[,c(1:17)])
+VPlex_BAL_foldchange <- VPlex_BAL_foldchange[-which(is.na(VPlex_BAL_foldchange)), ]
+VPlex_BAL_foldchange <- merge(Microbiome, VPlex_BAL_foldchange)
+VPlex_BAL_foldchange <- merge(Demographics, VPlex_BAL_foldchange) 
+
+# Export the combined dataframe
+write_xlsx(VPlex_BAL_foldchange, path = paste0(result_save, "COPA Microbiome Vplex BAL (fold change) data.xlsx"), col_names = TRUE,
+           format_headers = TRUE)
+
+```
+
+# Figures
+
+## Linear plot
+
+```{r, fig.width=12, fig.height=9, warning=FALSE}
+figure_df <- VPlex_BAL_foldchange[,c("EHP_sid","Exposure","ASV","IL-6","IL-7","IL-15")]
+figure_df_pivot <- figure_df %>% pivot_longer(cols = c("IL-6","IL-7","IL-15"),
+                                              names_to = "Cytokine",
+                                              values_to = "FoldChange",
+                                              values_drop_na = TRUE)
+figure_df_pivot$group <- as.numeric(figure_df_pivot$ASV)
+figure_df_pivot$group[which(figure_df_pivot$group >= 79.1)] = c("All participants")
+figure_df_pivot$group[which(figure_df_pivot$group < 79.1)] = c("All participants")
+figure_df_pivot$group <- factor(figure_df_pivot$group)
+figure_df_pivot$Cytokine <- factor(figure_df_pivot$Cytokine, levels =c("IL-6","IL-7","IL-15"))
+plot1 <- ggplot(figure_df_pivot, aes(x=ASV, y=FoldChange)) + geom_point() + geom_smooth(method='lm') + facet_grid(Cytokine ~ group) + theme_light(base_size = 25) + ylab("Fold change in concentration (DE-FA)") + xlab("ASV")
+plot1
+```
+
+## Cytokines dot plots
+
+```{r, fig.width=12, fig.height=9, warning=FALSE}
+Microbiome_VPlexBAL <- merge(Cytokines, Microbiome, by = c("EHP_sid"))
+figure_df <- Microbiome_VPlexBAL[,c("EHP_sid","Exposure","ASV","IL-6","IL-7","IL-15")]
+figure_df_pivot <- figure_df %>% pivot_longer(cols = c("IL-6","IL-7","IL-15"),
+                                              names_to = "Cytokine",
+                                              values_to = "Concentration",
+                                              values_drop_na = TRUE)
+figure_df_pivot$group <- as.numeric(figure_df_pivot$ASV)
+figure_df_pivot$group[which(figure_df_pivot$group >= 79.1)] = c("High ASV")
+figure_df_pivot$group[which(figure_df_pivot$group < 79.1)] = c("Low ASV")
+figure_df_pivot$group <- factor(figure_df_pivot$group, levels = c("Low ASV","High ASV"))
+figure_df_pivot$Cytokine <- factor(figure_df_pivot$Cytokine, levels =c("IL-6","IL-7","IL-15"))
+
+plot2 <- ggplot(figure_df_pivot, aes(x=Exposure, y=log10(Concentration))) + geom_point()+ geom_line(aes(group=EHP_sid)) +facet_grid(Cytokine ~ group) + theme_light(base_size = 25) + ylab(expression(Log[10]~ concentration (pg/mL))) 
+
+f_labels <- data.frame(group = c("Low ASV","High ASV"), Cytokine = c("IL-6", "IL-7", "IL-15"), label = c("p=0.05", "p=0.20", "p=0.03", "p=0.09","p=0.03","p=0.16"))
+f_labels$group <- factor(f_labels$group, levels = c("Low ASV","High ASV"))
+f_labels$Cytokine <- factor(f_labels$Cytokine, levels = c("IL-6", "IL-7", "IL-15"))
+plot2_anotated <- plot2 +  geom_text(x = 2.3, y = 1, aes(label = label), data = f_labels)
+plot2_anotated 
+```
+
+# Manuscript figure
+
+## Figure 1
+
+Ryu et al EHP 2023
+
+```{r, fig.width=12, fig.height=9}
+
+Combined_plot <- ggarrange(plot1, plot2_anotated, labels = c("A","B"),
+                            font.label = list(size = 25, color = "black", face = "bold", family = NULL),
+                            ncol = 2, nrow = 1, align = c("h"))
+Combined_plot
+
+```
+
+**Figure 1**. Exposure-by-ASV interaction on the impact of a controlled 2-hour diesel exhaust (DE) exposure on interleukin (IL) -6, -7 and -15 in bronchoalveolar lavage (BAL), compared with a filtered air (FA) exposure, in 25 participants. (Panel A) Fold change between FA and DE for each cytokine plotted against the average ASV determined by bronchial brushings (one per each exposure) in each participant (dots). Shaded areas are 95% confidence interval. (Panel B). Each line between FA and DE connects values measured in the same individual separated by a washout period (minimum 4 weeks). Low ASV group (N=13) had an average richness ≤79. High ASV group (N=12) had an average richness \>79. P values shown in the figure are from stratified analysis by the ASV groups; linear mixed-effects (LME) models were used to test for statistical comparison, adjusted for age. Exposure and age were fixed effects, and participant ID was a random effect in the LME models.
+
+# Session Info
+
+```{r session information calling, echo=FALSE}
+sessionInfo()
+```

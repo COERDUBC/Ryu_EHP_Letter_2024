@@ -1,0 +1,137 @@
+---
+title: "Ryu EHP 2024 LME analyses"
+author: "Min Hyung Ryu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+# Purpose
+
+Purpose of this html document is to LME analyses performed in Ryu et al EHP 2024 manuscript.
+
+Please consider citing our manuscript when using our dataset. Most up-to-date citation recommendation and data use will be posted on our GitHub page.
+
+Our GitHub repository is <https://github.com/COERDUBC/Ryu_EHP_Letter_2024>
+
+For any issue regarding code and data, please post issues to our GitHub page. For any other inquiry, please contact the corresponding author, Dr. Chris Carlsten.
+
+# Manuscript
+
+**Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
+
+Min Hyung Ryu^1,2,3^, Illiassou Hamidou Soumana^1,2^, Denise J Wooding^1,2^, Fernando Sergio Leitao Filho^3^, Julia Yang^3^, Corey Nislow^4^, Christopher F Rider^1,2^, Janice M Leung^3^, Chris Carlsten^1,2,3^
+
+^1^ Air Pollution Exposure Lab, Division of Respiratory Medicine, ^2^ Centre for Lung Health, Vancouver Coastal Health Research Institute, ^3^ Heart and Lung Innovation, St. Paul’s Hospital, ^4^ Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
+
+**Correspondence to be addressed to:**\
+\
+Chris Carlsten, MD, MPH
+
+2775 Laurel St. 7^th^ Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+
+E-mail: carlsten\@mail.ubc.ca
+
+Telephone: 1-604-875-4729
+
+
+**Funding:** This study was supported by a research grant from the Canadian Respiratory Research Network.
+
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "..")
+getwd()
+
+#load libraries
+library(here)
+library(readxl)
+library(writexl)
+library(plyr)
+library(tidyverse)
+library(gmodels)
+library(nlme)
+library(rmcorr)
+library(gtools)
+library(DT)
+library(tableone)
+library(ggpubr)
+
+
+# set date as an object
+currentDate <- format(Sys.Date(), "%Y%m%d")
+
+# set directories
+path = here::here() #this should be the parent directory 
+data_path = here::here("data")
+code_path = here::here("code")
+result_path = here::here("results")
+
+# make directory for results on currentDate
+if(dir.exists(paste0(result_path,"/", currentDate, "/")) == TRUE){
+  print(paste0(result_path,"/", currentDate, "/"))
+} else {
+  dir.create(paste0(result_path,"/", currentDate, "/"), recursive = TRUE)
+}
+
+result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
+
+```
+
+# Data
+
+```{r}
+Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+Microbiome <- readRDS(paste0(data_path, "/COPA_EHP_Microbiome_Public.rds"))
+colnames(Microbiome)[3] <- "ASV"
+Cytokines <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_Public.rds"))
+LODs <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_LODs_Public.rds"))
+colnames(LODs) <- c("Target","LLOD")
+Spiro <- readRDS(paste0(data_path, "/COPA_EHP_Spiro_Public.rds"))
+```
+
+## Calculate foldchange
+
+Below we calculate fold change between DE and FA
+
+```{r}
+# Write a function to calculate log fold change between FA and DE
+FoldChangeFA = function(data){
+  arrange(data, EHP_sid, Exposure)
+  tempList = list()
+  for (i in 1:length(data$EHP_sid)){
+    if (data$Exposure[i] != c("FA")){
+      newRow = data[i, ]
+      
+      FA = data[which(data$EHP_sid == newRow$EHP_sid), ]
+      FA = FA[which(FA$Exposure == c("FA")), ]
+      
+      for(k in 1:nrow(newRow)){  
+        for (j in 4:ncol(newRow)){
+          newRow[k,j] = ((foldchange(newRow[k,j],FA[k,j])))
+          tempList[[i]] = newRow
+        }}}
+    
+    if (data$Exposure[i] == c("FA")){
+      tempList[[i]] = NA
+    }}
+  rm(FA, newRow)
+  
+  newDataFrame = do.call(rbind.data.frame, tempList)
+  return(newDataFrame)
+}
+
+Cytokines$Exposure <- as.character(Cytokines$Exposure)
+VPlex_BAL_foldchange <- FoldChangeFA(Cytokines[,c(1:17)])
+VPlex_BAL_foldchange <- VPlex_BAL_foldchange[-which(is.na(VPlex_BAL_foldchange)), ]
+VPlex_BAL_foldchange <- merge(Microbiome, VPlex_BAL_foldchange)
+VPlex_BAL_foldchange <- merge(Demographics, VPlex_BAL_foldchange) 
+
+# Export the combined dataframe
+write_xlsx(VPlex_BAL_foldchange, path = paste0(result_save, "COPA Microbiome Vplex BAL (fold change) data.xlsx"), col_names = TRUE,
+           format_headers = TRUE)
+
+```
