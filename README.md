@@ -2,7 +2,15 @@
 
 This is a public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
 
-Please consider citing our manuscript when using our dataset for your publication. Most up-to-date citation recommendation and data use will be posted on this page when the manuscript becomes available on PubMed.
+## Citate our work
+Please consider citing our manuscript when using our dataset for your publication. Most up-to-date citation recommendations for our work will be posted on this page when the EHP manuscript becomes available on PubMed.
+
+<strong> Main Study Paper:</strong>
+    <code>Ryu MH, Afshar T, Li H, Wooding DJ, Orach J, Zhou JS, et al. Impact of Exposure to Diesel Exhaust on Inflammation Markers and Proteases in Former Smokers with Chronic Obstructive Pulmonary Disease: A Randomized, Double-blinded, Crossover Study. Am J Respir Crit Care Med 2022;205:1046–52. https://doi.org/10.1164/rccm.202104-1079oc.</code>
+
+<strong>Microbiome Paper:</strong>
+    <code>Soumana IH, Ryu MH, Studart F, Yang J, Orach J, Nislow C, et al. Exposure to diesel exhaust alters the functional metagenomic composition of the airway microbiome in former smokers. Environ Res 2022;216:114826. https://doi.org/10.1016/j.envres.2022.114826.</code>
+  
 
 ## Manuscript
 
@@ -30,7 +38,7 @@ Telephone: 1-604-875-4729
 
 |          |                                                                  |
 |---------------|---------------------------------------------------------|
-| /code    | where all the analysis code are located                          |
+| /code    | where all the analysis codes are located                          |
 | /data    | where all the data required to run the analysis code are located |
 | /results | where the latest analysis results are located                    |
 
