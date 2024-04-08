@@ -1,0 +1,952 @@
+---
+title: "Ryu EHP 2024 LME analyses with Study Group, COPD, and Age"
+author: "Min Hyung Ryu"
+date: "`r format(Sys.time(), '%d %B, %Y')`"
+output: 
+  html_document:
+    code_folding: hide
+    df_print: paged
+    toc: true
+    toc_float: true
+---
+
+# Purpose
+
+Purpose of this html document is to LME analyses performed in Ryu et al EHP 2024 manuscript.
+The analysis presented here are focused on testing exposure-by-study group, exposure-by-COPD, or exposure-by-age interactions.
+
+Please consider citing our manuscript when using our dataset. Most up-to-date citation recommendation and data use will be posted on our GitHub page.
+
+Our GitHub repository is <https://github.com/COERDUBC/Ryu_EHP_Letter_2024>
+
+For any issue regarding code and data, please post issues to our GitHub page. For any other inquiry, please contact the corresponding author, Dr. Chris Carlsten.
+
+# Manuscript
+
+**Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
+
+Min Hyung Ryu^1,2,3^, Illiassou Hamidou Soumana^1,2^, Denise J Wooding^1,2^, Fernando Sergio Leitao Filho^3^, Julia Yang^3^, Corey Nislow^4^, Christopher F Rider^1,2^, Janice M Leung^3^, Chris Carlsten^1,2,3^
+
+^1^ Air Pollution Exposure Lab, Division of Respiratory Medicine, ^2^ Centre for Lung Health, Vancouver Coastal Health Research Institute, ^3^ Heart and Lung Innovation, St. Paul’s Hospital, ^4^ Department of Biochemistry and Molecular Biology, University of British Columbia, Vancouver, BC, Canada
+
+**Correspondence to be addressed to:**\
+\
+Chris Carlsten, MD, MPH
+
+2775 Laurel St. 7^th^ Floor, The Lung Center, Vancouver General Hospital – Gordon and Leslie Diamond Health Care Centre, Vancouver, BC V5Z 1M9
+
+E-mail: carlsten\@mail.ubc.ca
+
+Telephone: 1-604-875-4729
+
+
+**Funding:** This study was supported by a research grant from the Canadian Respiratory Research Network.
+
+
+```{r setup, include=FALSE}
+knitr::opts_knit$set(root.dir = "..")
+getwd()
+
+#load libraries
+library(here)
+library(readxl)
+library(writexl)
+library(plyr)
+library(tidyverse)
+library(gmodels)
+library(nlme)
+library(rmcorr)
+library(gtools)
+library(DT)
+library(tableone)
+library(ggpubr)
+
+
+# set date as an object
+currentDate <- format(Sys.Date(), "%Y%m%d")
+
+# set directories
+path = here::here() #this should be the parent directory 
+data_path = here::here("data")
+code_path = here::here("code")
+result_path = here::here("results")
+
+# make directory for results on currentDate
+if(dir.exists(paste0(result_path,"/", currentDate, "/")) == TRUE){
+  print(paste0(result_path,"/", currentDate, "/"))
+} else {
+  dir.create(paste0(result_path,"/", currentDate, "/"), recursive = TRUE)
+}
+
+result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
+
+```
+
+# Data
+
+```{r}
+Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+Microbiome <- readRDS(paste0(data_path, "/COPA_EHP_Microbiome_Public.rds"))
+colnames(Microbiome)[3] <- "ASV"
+Cytokines <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_Public.rds"))
+LODs <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_LODs_Public.rds"))
+colnames(LODs) <- c("Target","LLOD")
+Spiro <- readRDS(paste0(data_path, "/COPA_EHP_Spiro_Public.rds"))
+```
+
+## Merge data
+
+Merge demographic and Microbiome and add COPD column
+```{r}
+## Add in COPD information
+Demographics$COPD <- as.character(Demographics$Group)
+
+for (i in 1:length(Demographics$EHP_sid)){
+  if(Demographics$COPD[i] %in% c("ES", "NS")){
+    Demographics$COPD[i] = c("noCOPD")}
+  else{
+    Demographics$COPD[i] = c("COPD")}}
+
+Demographics$COPD <- factor(Demographics$COPD, level = c("noCOPD", "COPD"))
+
+Demo_microbiome <- merge(Demographics, Microbiome)
+Demographics$Group <- factor(Demographics$Group, levels = c("ES","NS", "ES-COPD"))
+```
+
+Process spirometry data
+```{r}
+## taking delta values from the baseline
+Spiro_temp <- Spiro
+## write a function for finding delta
+SubtractMinusFour = function(data){
+  arrange(data, EHP_sid, Exposure, Time)
+  tempList = list()
+  for (i in 1:length(data$EHP_sid)){
+    if (data$Time[i] != c("-4h")){
+      newRow = data[i, ]
+      
+      minusFour = data[which(data$EHP_sid == newRow$EHP_sid, data$Exposure == newRow$Exposure), ]
+      minusFour = minusFour[which(minusFour$Time == c("-4h")), ]
+      
+      for(k in 1:nrow(newRow)){  
+        for (j in 6:ncol(newRow)){
+          newRow[k,j] = ((newRow[k,j] - minusFour[k,j]))
+          tempList[[i]] = newRow
+        }}}
+    
+    if (data$Time[i] == c("-4h")){
+      tempList[[i]] = NA
+    }}
+  rm(minusFour, newRow)
+  
+  newDataFrame = do.call(rbind.data.frame, tempList)
+  return(newDataFrame)
+}
+
+Spiro_delta = SubtractMinusFour(Spiro_temp)
+Spiro_delta = Spiro_delta[-which(is.na(Spiro_delta)), ]
+rownames(Spiro_delta) = NULL
+
+Spiro_delta <- merge(Demo_microbiome, Spiro_delta)
+
+Spiro0h = filter(Spiro_delta, Time == "0h")
+Spiro1.5h = filter(Spiro_delta, Time == "1.5h")
+Spiro24h = filter(Spiro_delta, Time == "24h")
+
+```
+
+Merge cytokine data with demographics and microbiome data
+```{r}
+## Create cytokine dataframe
+Cytokine_data <- merge(Demo_microbiome, Cytokines)
+Cytokine_data$Time <- "24h"
+```
+
+# Spirometry Analysis
+
+## Study Group
+We recruited three groups of participants: never-smokers without COPD (NS group), ex-smokers (minimum 10 pack-years of smoking history) without COPD (ES group), and ex-smokers with mild or moderate COPD (FEV1/FVC < 0.7 and FEV1 % predicted (FEV1pp) >50) (ES-COPD group).
+
+Testing the exposure-by-Group interaction across the entire participants for FEV1. The reference group is the ES group for the following analysis. 
+
+### LME analyses for FEV1 at 0h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro0h
+#Demographics$Group <- factor(Demographics$Group, levels = c("ES","NS", "ES-COPD"))
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Group","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$Group <- factor(tmp.data$Group, levels = c("ES","NS", "ES-COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Group , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Group", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:Group", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 1.5h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro1.5h
+#Demographics$Group <- factor(Demographics$Group, levels = c("ES","NS", "ES-COPD"))
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Group","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$Group <- factor(tmp.data$Group, levels = c("ES","NS", "ES-COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Group , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Group", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:Group", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 24h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro24h
+#Demographics$Group <- factor(Demographics$Group, levels = c("ES","NS", "ES-COPD"))
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Group","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$Group <- factor(tmp.data$Group, levels = c("ES","NS", "ES-COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Group , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Group", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:Group", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+## COPD status
+Testing the exposure-by-COPD interaction across the entire participants for FEV1.
+
+### LME analyses for FEV1 at 0h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro0h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$COPD <- factor(tmp.data$COPD, levels = c("noCOPD", "COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*COPD , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:COPD", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:COPD", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 1.5h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro1.5h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$COPD <- factor(tmp.data$COPD, levels = c("noCOPD", "COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*COPD , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:COPD", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:COPD", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 24h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro24h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$COPD <- factor(tmp.data$COPD, levels = c("noCOPD", "COPD"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*COPD , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:COPD", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:COPD", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+## Age
+Testing the exposure-by-age interaction across the entire participants for FEV1.
+
+### LME analyses for FEV1 at 0h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro0h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Age","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Age , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Age", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 1.5h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro1.5h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Age","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Age , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Age", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+### LME analyses for FEV1 at 24h
+```{r}
+temp.var.names = c("FEV1 %Pred")
+Spiro_data <- Spiro24h
+
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Spiro_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Age","COPD")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    fm1 <- lme(Value ~ Exposure, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+    temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(Value ~ Exposure*Age , 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML', na.action = na.omit)
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Age", temp.result$Contrast), ] 
+  
+  temp.result$Contrast = gsub("ExposureDE:", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)}
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1]) 
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI]" = paste0(round(summary.result$Estimate,2), " [", round(summary.result$CI.lower,2), " to ",  round(summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+
+summary.result %>% 
+  datatable()
+
+```
+
+# Cytokine Analysis
+
+Here we are testing for all the cytokines detected in the BAL samples.
+```{r}
+#cytokines to be tested
+temp.var.names= c("GM-CSF", "IL-1α", "IL-6", "IL-7", "IL-8", "IL-12/IL-23p40", "IL-15", "IL-16", "IP-10", "MCP-1", "MDC", "MIP-1β", "TARC", "VEGF") 
+```
+
+## Study Group
+#### Main effect analysis and exposure-by-Group interaction test
+```{r}
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Cytokine_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Group", "COPD", "Age")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$Group <- factor(tmp.data$Group, levels = c("ES","NS", "ES-COPD"))
+
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    #tmp.data1 = tmp.data1[complete.cases(tmp.data1),]
+    fm1 <- lme(log10(Value) ~ Exposure + Age, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+  temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(log(Value) ~ Exposure*Group + Age, 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML')
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Group", temp.result$Contrast), ] 
+  temp.result$Contrast = gsub("ExposureDE:Group", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)
+  } # end of for (j)
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1])
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI] back transformed" = paste0(round(10^summary.result$Estimate,2), " [", round(10^summary.result$CI.lower,2), " to ",  round(10^summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+summary.result %>% 
+  datatable()
+```
+
+## COPD Status
+#### Main effect analysis and exposure-by-COPD interaction test
+```{r}
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Cytokine_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "COPD", "Age")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+    tmp.data$COPD <- factor(tmp.data$COPD, levels = c("noCOPD", "COPD"))
+
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    #tmp.data1 = tmp.data1[complete.cases(tmp.data1),]
+    fm1 <- lme(log10(Value) ~ Exposure + Age, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+  temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(log(Value) ~ Exposure*COPD + Age, 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML')
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:COPD", temp.result$Contrast), ] 
+  temp.result$Contrast = gsub("ExposureDE:COPD", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)
+  } # end of for (j)
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1])
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI] back transformed" = paste0(round(10^summary.result$Estimate,2), " [", round(10^summary.result$CI.lower,2), " to ",  round(10^summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+summary.result %>% 
+  datatable()
+```
+
+## Age
+#### Main effect analysis and exposure-by-Age interaction test
+```{r}
+count = 0
+for(i in c(1:length(temp.var.names))){
+  #i = 1
+  tmp.data = Cytokine_data[, c(temp.var.names[i], "EHP_sid", "Exposure", "Time", "Age")]
+  tmp.data$Value = tmp.data[,temp.var.names[i]]
+  for(j in unique(tmp.data$Time)){
+    # j = "24h"
+    tmp.data$Exposure = factor(tmp.data$Exposure, levels = c( "FA", "DE"))
+
+    tmp.data1 = tmp.data[tmp.data$Time == j,]
+    #tmp.data1 = tmp.data1[complete.cases(tmp.data1),]
+    fm1 <- lme(log10(Value) ~ Exposure + Age, 
+             data = tmp.data1, random = ~1|EHP_sid , method = 'REML', na.action = na.omit)
+  count = count + 1
+  temp.result = data.frame(ci(fm1))#summary(fm1)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  #temp.result = temp.result[!temp.result$Contrast=="(Intercept)", ] 
+  temp.result = temp.result[grepl("Exposure", temp.result$Contrast), ]   
+  #temp.result$Contrast[temp.result$Contrast=="(Intercept)"]= "FA-S"
+  temp.result$Contrast = gsub("Exposure", "", temp.result$Contrast)
+  temp.result$Contrast[!temp.result$Contrast =="FA"] =
+    paste(temp.result$Contrast[!temp.result$Contrast =="FA"],
+          "vs. FA")
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+    
+  if(count == 1){summary.result = temp.result} else {
+    summary.result = rbind(summary.result, temp.result)}
+  
+  fm2 <- lme(log(Value) ~ Exposure*Age, 
+             data = tmp.data1, random = ~1 |EHP_sid, method = 'REML')
+  
+  temp.result = data.frame(ci(fm2))#summary(fm2)$tTable)
+  temp.result$Contrast = row.names(temp.result)
+  temp.result = temp.result[grepl("ExposureDE:Age", temp.result$Contrast), ] 
+  temp.result$Contrast = gsub("ExposureDE:", "", temp.result$Contrast)
+  temp.result$Contrast = paste(temp.result$Contrast, "interaction")
+  
+  temp.result$Var = temp.var.names[i]
+  temp.result$Time = j
+  temp.result = temp.result[,c("Time", "Var", "Contrast", "Estimate", "Std..Error", 
+                               "DF", "CI.lower", "CI.upper", "p.value")]
+  summary.result = rbind(summary.result, temp.result)
+  } # end of for (j)
+} # end of for i
+
+row.names(summary.result) = c(1:dim(summary.result)[1])
+
+## add in the columns with rounding of numbers for nice presentation
+summary.result$"Effects [95% CI] back transformed" = paste0(round(10^summary.result$Estimate,2), " [", round(10^summary.result$CI.lower,2), " to ",  round(10^summary.result$CI.upper,2),"]")
+summary.result$"P value" <- round(summary.result$p.value,4)
+summary.result <- summary.result[,-c(4,5,7,8,9)]
+summary.result %>% 
+  datatable()
+```
+
+
+# Session Info
+
+```{r session information calling, echo=FALSE}
+sessionInfo()
+```
