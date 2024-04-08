@@ -30,7 +30,7 @@ Telephone: 1-604-875-4729
 
 |          |                                                                  |
 |---------------|---------------------------------------------------------|
-| /code    | where all the analysis code                                      |
+| /code    | where all the analysis code are located                          |
 | /data    | where all the data required to run the analysis code are located |
 | /results | where the latest analysis results are located                    |
 
