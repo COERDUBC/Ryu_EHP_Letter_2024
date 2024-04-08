@@ -49,5 +49,7 @@ result_save <- paste0(result_path,"/", currentDate, "/", currentDate, "_")
 # Data
 ```{r}
 Demographics <- readRDS(paste0(data_path, "/COPA_EHP_Demographics_Public.rds"))
+Microbiome <- readRDS(paste0(data_path, "/COPA_EHP_Microbiome_Public.rds"))
+Cytokines <- readRDS(paste0(data_path, "/COPA_EHP_VPlex_BAL_Public.rds"))
 ```
 
