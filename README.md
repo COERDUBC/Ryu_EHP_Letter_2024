@@ -1,12 +1,11 @@
-# Ryu et al. Environmental Health Perspective Research Letter 2024
+# Ryu <em>et al.</em> Environmental Health Perspective 2024
 
-This is a public repo for Ryu et al 2024 Environmental Health Perspectives Manuscript.
+This is a public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
 
 Please consider citing our manuscript when using our dataset for your publication. Most up-to-date citation recommendation and data use will be posted on this page when the manuscript becomes available on PubMed.
 
 ## Manuscript
 
-------------------------------------------------------------------------
 
 **Relationship between airway microbiome and the immune response to diesel exhaust: a randomized crossover controlled exposure study**
 
@@ -26,9 +25,8 @@ Telephone: 1-604-875-4729
 
 **Funding:** This study was supported by a research grant from the Canadian Respiratory Research Network.
 
-## [Directories]{.underline}
+## Directories
 
-------------------------------------------------------------------------
 
 |          |                                                                  |
 |---------------|---------------------------------------------------------|
@@ -36,11 +34,10 @@ Telephone: 1-604-875-4729
 | /data    | where all the data required to run the analysis code are located |
 | /results | where the latest analysis results are located                    |
 
-## [Analysis]{.underline}
+## Analysis
 
-All the code for the analysis are located in the code folder. Html generated from R markdown documents are located in the results directory.
+All the code documents for the analysis are located in the code folder. Html generated from R markdown documents are located in the results directory.
 
-------------------------------------------------------------------------
 
 |                                            |                                                                           |
 |---------------------------|---------------------------------------------|
