@@ -3,7 +3,7 @@
 This is a public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
 
 ## Cite our work
-Please consider citing our manuscript when using our dataset for your publication. Most up-to-date citation recommendations for our work will be posted on this page when the EHP manuscript becomes available on PubMed.
+Please consider citing our manuscripts when using our dataset for your publication. Most up-to-date citation recommendations for our work will be posted on this page when the EHP manuscript becomes available on PubMed.
 
 <strong> Main Study Paper:</strong>
     <code>Ryu MH, Afshar T, Li H, Wooding DJ, Orach J, Zhou JS, et al. Impact of Exposure to Diesel Exhaust on Inflammation Markers and Proteases in Former Smokers with Chronic Obstructive Pulmonary Disease: A Randomized, Double-blinded, Crossover Study. Am J Respir Crit Care Med 2022;205:1046–52. https://doi.org/10.1164/rccm.202104-1079oc.</code>
