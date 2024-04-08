@@ -1,4 +1,4 @@
-# Ryu <em>et al.</em> Environmental Health Perspective 2024
+# Ryu <em>et al.</em> Environmental Health Perspectives 2024
 
 This is a public repo for Ryu <em>et al</em> 2024 Environmental Health Perspectives Manuscript.
 
